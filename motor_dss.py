@@ -1,19 +1,20 @@
 import mysql.connector
+import streamlit as st
 import pandas as pd
 import numpy as np
 import certifi
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.cluster import KMeans
 from sklearn.preprocessing import StandardScaler
-from imblearn.over_sampling import SMOTE  # Añadimos SMOTE al motor principal
+from imblearn.over_sampling import SMOTE
 from datetime import datetime
 
 db_config = {
-    "host": "gateway01.us-east-1.prod.aws.tidbcloud.com",
+    "host": st.secrets["TIDB_HOST"],
     "port": 4000,
-    "database": "asistencia_db",
-    "user": "AvxXHDnHQFeZrfM.root",
-    "password": "ytcjqQGK0qWnwuIa",
+    "database": st.secrets["TIDB_DATABASE"],
+    "user": st.secrets["TIDB_USER"],
+    "password": st.secrets["TIDB_PASSWORD"],
     "ssl_ca": certifi.where(),
     "ssl_verify_cert": True,
     "ssl_verify_identity": True
