@@ -47,7 +47,7 @@ try:
     """
 
     fecha_base = datetime.now() - timedelta(days=90) 
-    aulas_posibles = ["1 - A", "2 - B", "3 - C", "4 - A", "5 - D", "Lab Computo 1", "Lab Computo 2"]
+    aulas_posibles = ["1 - A", "2 - B", "3 - C", "4 - A", "5 - D",]
     
     print("Generando 200 registros de historial operativo...")
     

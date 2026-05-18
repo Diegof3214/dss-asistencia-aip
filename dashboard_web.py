@@ -21,8 +21,18 @@ db_config = motor_dss.db_config
 def cargar_datos():
     try:
         conn = mysql.connector.connect(**db_config)
-        df = pd.read_sql("SELECT * FROM alertas_ml ORDER BY RIESGO_AUSENTISMO DESC", conn)
+        # Filtramos las aulas inexistentes directamente en la consulta predictiva
+        query = """
+            SELECT * FROM alertas_ml 
+            WHERE AULA NOT IN ('Lab Computo 1', 'Lab Computo 2') 
+            ORDER BY RIESGO_AUSENTISMO DESC
+        """
+        df = pd.read_sql(query, conn)
         conn.close()
+        
+        # Eliminación explícita de columnas de ID que no aportan valor visual
+        if 'IDMONITOREO' in df.columns:
+            df.drop(columns=['IDMONITOREO'], inplace=True)
         return df
     except Exception:
         return pd.DataFrame()
@@ -31,11 +41,13 @@ def cargar_datos():
 def cargar_historial():
     try:
         conn = mysql.connector.connect(**db_config)
+        # Traemos el nombre real del área mediante un LEFT JOIN y excluimos las aulas obsoletas
         query = """
             SELECT m.FECHA, m.NOMBRE_DEL_PROFESOR AS PROFESOR, m.TURNO, 
-                   a.NOMBRE AS AREA, m.NUMERO_DE_ALUMNOS AS ALUMNOS, m.INASISTENCIA
+                   a.NOMBRE AS AREA, m.NUMERO_DE_ALUMNOS AS ALUMNOS, m.AULA, m.INASISTENCIA
             FROM monitoreo m
             LEFT JOIN area a ON m.AREA = a.IDAREA
+            WHERE m.AULA NOT IN ('Lab Computo 1', 'Lab Computo 2')
             ORDER BY m.FECHA DESC
         """
         df = pd.read_sql(query, conn)
@@ -44,8 +56,10 @@ def cargar_historial():
     except Exception:
         try:
             conn = mysql.connector.connect(**db_config)
-            df = pd.read_sql("SELECT * FROM monitoreo", conn)
+            df = pd.read_sql("SELECT * FROM monitoreo WHERE AULA NOT IN ('Lab Computo 1', 'Lab Computo 2')", conn)
             conn.close()
+            if 'IDMONITOREO' in df.columns:
+                df.drop(columns=['IDMONITOREO'], inplace=True)
             return df
         except Exception:
             return pd.DataFrame()
@@ -99,6 +113,7 @@ with st.sidebar:
         docentes_unicos = df_para_docentes['PROFESOR'].dropna().unique().tolist()
         filtro_docente = st.multiselect("Filtrar por Docente:", options=docentes_unicos, default=[])
 
+# Pestañas de Navegación
 tab_predictivo, tab_auditoria = st.tabs(["🔮 Inteligencia Artificial (Alertas)", "📜 Auditoría de Asistencia (Historial)"])
 
 with tab_predictivo:
@@ -116,7 +131,7 @@ with tab_predictivo:
         with col2: st.markdown(f'<div class="metric-card" style="border-top-color: #EF4444;"><h3>Riesgo de Ausentismo</h3><h2 style="color: #EF4444;">{len(df_filtrado[df_filtrado["NIVEL_RIESGO"] == "ALTO"])}</h2></div>', unsafe_allow_html=True)
         with col3: st.markdown(f'<div class="metric-card" style="border-top-color: #F59E0B;"><h3>Anomalías en Infraestructura</h3><h2 style="color: #F59E0B;">{len(df_filtrado[df_filtrado["ANOMALIA_INFRAESTRUCTURA"].str.contains("ANOMALÍA", na=False)])}</h2></div>', unsafe_allow_html=True)
         
-        df_mostrar = df_filtrado.drop(columns=['ID_ALERTA'], errors='ignore')
+        df_mostrar = df_filtrado.drop(columns=['ID_ALERTA', 'IDMONITOREO'], errors='ignore')
         if 'RIESGO_AUSENTISMO' in df_mostrar.columns:
             df_mostrar['RIESGO_AUSENTISMO'] = df_mostrar['RIESGO_AUSENTISMO'].apply(lambda x: f"{x*100:.0f}%")
             
@@ -126,6 +141,7 @@ with tab_predictivo:
             'PROFESOR': 'Docente', 
             'RIESGO_AUSENTISMO': 'Prob. Falta (RF)', 
             'NIVEL_RIESGO': 'Alerta', 
+            'AULA': 'Aula Asignada',
             'ANOMALIA_INFRAESTRUCTURA': 'Infraestructura'
         }
         df_mostrar.rename(columns=columnas_renombradas, inplace=True)
@@ -142,16 +158,30 @@ with tab_auditoria:
         busqueda = st.text_input("🔍 Buscar profesor específico en el historial:")
         
         df_hist_mostrar = df_historico.copy()
+        if 'IDMONITOREO' in df_hist_mostrar.columns:
+            df_hist_mostrar.drop(columns=['IDMONITOREO'], inplace=True)
+            
         if busqueda:
             df_hist_mostrar = df_hist_mostrar[df_hist_mostrar.astype(str).apply(lambda x: x.str.contains(busqueda, case=False)).any(axis=1)]
             
+        columnas_renombradas_hist = {
+            'FECHA': 'Fecha / Hora',
+            'PROFESOR': 'Docente',
+            'TURNO': 'Turno',
+            'AREA': 'Área Académica',
+            'ALUMNOS': 'Aforo Alumnos',
+            'AULA': 'Aula',
+            'INASISTENCIA': 'Estado Asistencia'
+        }
+        df_hist_mostrar.rename(columns=columnas_renombradas_hist, inplace=True)
+
         def resaltar_faltas(val):
             if str(val).upper() in ['FALTO', 'INASISTENCIA', 'TARDE', 'SI']:
                 return 'background-color: #FEE2E2; color: #991B1B; font-weight: bold;'
             return ''
             
-        if 'INASISTENCIA' in df_hist_mostrar.columns:
-            st.dataframe(df_hist_mostrar.style.map(resaltar_faltas, subset=['INASISTENCIA']), use_container_width=True, hide_index=True)
+        if 'Estado Asistencia' in df_hist_mostrar.columns:
+            st.dataframe(df_hist_mostrar.style.map(resaltar_faltas, subset=['Estado Asistencia']), use_container_width=True, hide_index=True)
         else:
             st.dataframe(df_hist_mostrar, use_container_width=True, hide_index=True)
     else:
