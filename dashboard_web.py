@@ -40,22 +40,24 @@ def cargar_datos():
         if 'IDMONITOREO' in df.columns:
             df.drop(columns=['IDMONITOREO'], inplace=True)
         return df
-    except Exception:
+    except Exception as e:
+        st.error(f"⚠️ Error al cargar Alertas Predictivas: {e}")
         return pd.DataFrame()
 
 @st.cache_data(ttl=60)
 def cargar_historial():
     try:
         conn = mysql.connector.connect(**db_config)
+        # Corrección: Usamos comillas invertidas para columnas con espacios en MySQL/TiDB
         query = """
-            SELECT m.FECHA, m.NOMBRE_DEL_PROFESOR AS PROFESOR, m.TURNO, 
-                   a.NOMBRE AS AREA_NOMBRE, m.AREA AS AREA_NUM, m.NUMERO_DE_ALUMNOS AS ALUMNOS, m.AULA, m.INASISTENCIA
+            SELECT m.`FECHA`, m.`NOMBRE DEL PROFESOR` AS PROFESOR, m.`TURNO`, 
+                   a.`NOMBRE` AS AREA_NOMBRE, m.`AREA` AS AREA_NUM, m.`NUMERO DE ALUMNOS` AS ALUMNOS, m.`AULA`, m.`INASISTENCIA`
             FROM monitoreo m
-            LEFT JOIN area a ON m.AREA = a.IDAREA
-            WHERE m.AULA NOT IN ('Lab Computo 1', 'Lab Computo 2')
-              AND m.AULA NOT LIKE '%GRADO - SECCION%'
-              AND YEAR(m.FECHA) = 2026
-            ORDER BY m.FECHA DESC
+            LEFT JOIN area a ON m.`AREA` = a.`IDAREA`
+            WHERE m.`AULA` NOT IN ('Lab Computo 1', 'Lab Computo 2')
+              AND m.`AULA` NOT LIKE '%GRADO - SECCION%'
+              AND YEAR(m.`FECHA`) = 2026
+            ORDER BY m.`FECHA` DESC
         """
         df = pd.read_sql(query, conn)
         conn.close()
@@ -65,21 +67,25 @@ def cargar_historial():
             df.drop(columns=['AREA_NOMBRE', 'AREA_NUM'], inplace=True)
             
         return df
-    except Exception:
+    except Exception as e:
+        # Si falla por la columna FECHA o nombres, exponemos el error en pantalla para diagnosticar
+        st.error(f"⚠️ Nota en Historial (Consulta Principal): {e}")
         try:
             conn = mysql.connector.connect(**db_config)
+            # Fallback seguro: Carga los datos crudos sin filtro estricto de año para verificar contenido
             query_fallback = """
-                SELECT * FROM monitoreo 
-                WHERE AULA NOT IN ('Lab Computo 1', 'Lab Computo 2') 
-                  AND AULA NOT LIKE '%GRADO - SECCION%'
-                  AND YEAR(FECHA) = 2026
+                SELECT *, `NOMBRE DEL PROFESOR` AS PROFESOR, `NUMERO DE ALUMNOS` AS ALUMNOS 
+                FROM monitoreo 
+                WHERE `AULA` NOT IN ('Lab Computo 1', 'Lab Computo 2') 
+                  AND `AULA` NOT LIKE '%GRADO - SECCION%'
             """
             df = pd.read_sql(query_fallback, conn)
             conn.close()
             if 'IDMONITOREO' in df.columns:
                 df.drop(columns=['IDMONITOREO'], inplace=True)
             return df
-        except Exception:
+        except Exception as e_fallback:
+            st.error(f"❌ Error Crítico en Consulta de Respaldo: {e_fallback}")
             return pd.DataFrame()
 
 def pintar_riesgo(val):
@@ -95,6 +101,7 @@ def pintar_anomalia(val):
 df_alertas = cargar_datos()
 df_historico = cargar_historial()
 
+# --- BARRA LATERAL CON FILTROS GLOBALES UNIFICADOS ---
 with st.sidebar:
     st.image("https://cdn-icons-png.flaticon.com/512/2942/2942789.png", width=80)
     st.header("Controles")
@@ -143,6 +150,7 @@ with st.sidebar:
 # --- PESTAÑAS DE NAVEGACIÓN ---
 tab_predictivo, tab_auditoria = st.tabs(["🔮 Inteligencia Artificial (Alertas)", "📜 Auditoría de Asistencia (Historial)"])
 
+# Pestaña 1: Alertas Predictivas
 with tab_predictivo:
     if not df_alertas.empty:
         df_filtrado = df_alertas.copy()
@@ -177,6 +185,7 @@ with tab_predictivo:
     else:
         st.info("Presiona 'Re-entrenar Modelos' en la barra lateral para generar las primeras alertas.")
 
+# Pestaña 2: Auditoría e Historial de Asistencia
 with tab_auditoria:
     if not df_historico.empty:
         st.write("Verifica el historial detallado del año 2026 para contrastar y confirmar el contexto de las alertas predictivas.")
@@ -201,16 +210,21 @@ with tab_auditoria:
             'AULA': 'Aula',
             'INASISTENCIA': 'Estado Asistencia'
         }
-        df_hist_filtrado.rename(columns=columnas_renombradas_hist, inplace=True)
+        
+        # Mapeo dinámico de nombres según las columnas que devuelva la consulta exitosa
+        columnas_existentes = {k: v for k, v in columnas_renombradas_hist.items() if k in df_hist_filtrado.columns}
+        df_hist_filtrado.rename(columns=columnas_existentes, inplace=True)
 
         def resaltar_faltas(val):
             if str(val).upper() in ['FALTO', 'INASISTENCIA', 'TARDE', 'SI']:
                 return 'background-color: #FEE2E2; color: #991B1B; font-weight: bold;'
             return ''
             
-        if 'Estado Asistencia' in df_hist_filtrado.columns:
-            st.dataframe(df_hist_filtrado.style.map(resaltar_faltas, subset=['Estado Asistencia']), use_container_width=True, hide_index=True)
+        target_col = 'Estado Asistencia' if 'Estado Asistencia' in df_hist_filtrado.columns else ('INASISTENCIA' if 'INASISTENCIA' in df_hist_filtrado.columns else None)
+        
+        if target_col:
+            st.dataframe(df_hist_filtrado.style.map(resaltar_faltas, subset=[target_col]), use_container_width=True, hide_index=True)
         else:
             st.dataframe(df_hist_filtrado, use_container_width=True, hide_index=True)
     else:
-        st.warning("No se encontraron registros en la tabla histórica (monitoreo) para el año 2026.")
+        st.warning("No se encontraron registros en la tabla histórica (monitoreo).")
