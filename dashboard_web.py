@@ -208,7 +208,7 @@ with tab_auditoria:
             'AREA': 'Área Académica',
             'ALUMNOS': 'Aforo Alumnos',
             'AULA': 'Aula',
-            'INASISTENCIA': 'Estado Asistencia'
+            'INASISTENCIA': 'Inasistencia'
         }
         
         columnas_existentes = {k: v for k, v in columnas_renombradas_hist.items() if k in df_hist_filtrado.columns}
