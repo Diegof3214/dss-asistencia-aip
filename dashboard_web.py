@@ -21,7 +21,6 @@ db_config = motor_dss.db_config
 def cargar_datos():
     try:
         conn = mysql.connector.connect(**db_config)
-        # FECHA_PROCESAMIENTO sí es DATETIME porque lo genera Python en motor_dss
         query = """
             SELECT am.*, a.NOMBRE AS NOMBRE_REAL_AREA 
             FROM alertas_ml am
@@ -49,10 +48,12 @@ def cargar_datos():
 def cargar_historial():
     try:
         conn = mysql.connector.connect(**db_config)
-        # SOLUCIÓN: Usamos LIKE '%2026' para buscar en las fechas guardadas como texto (MM/DD/YYYY)
+        # SE AÑADE: m.`NUMERO DE COMPUTADORAS` para auditar el desbalance del algoritmo K-Means
         query = """
             SELECT m.`FECHA`, m.`NOMBRE DEL PROFESOR` AS PROFESOR, m.`TURNO`, 
-                   a.`NOMBRE` AS AREA_NOMBRE, m.`AREA` AS AREA_NUM, m.`NUMERO DE ALUMNOS` AS ALUMNOS, m.`AULA`, m.`INASISTENCIA`
+                   a.`NOMBRE` AS AREA_NOMBRE, m.`AREA` AS AREA_NUM, 
+                   m.`NUMERO DE ALUMNOS` AS ALUMNOS, m.`NUMERO DE COMPUTADORAS` AS EQUIPOS, 
+                   m.`AULA`, m.`INASISTENCIA`
             FROM monitoreo m
             LEFT JOIN area a ON m.`AREA` = a.`IDAREA`
             WHERE m.`AULA` NOT IN ('Lab Computo 1', 'Lab Computo 2')
@@ -72,8 +73,9 @@ def cargar_historial():
         st.error(f"⚠️ Nota en Historial (Consulta Principal): {e}")
         try:
             conn = mysql.connector.connect(**db_config)
+            # Fallback seguro incluyendo también la columna de computadoras
             query_fallback = """
-                SELECT *, `NOMBRE DEL PROFESOR` AS PROFESOR, `NUMERO DE ALUMNOS` AS ALUMNOS 
+                SELECT *, `NOMBRE DEL PROFESOR` AS PROFESOR, `NUMERO DE ALUMNOS` AS ALUMNOS, `NUMERO DE COMPUTADORAS` AS EQUIPOS 
                 FROM monitoreo 
                 WHERE `AULA` NOT IN ('Lab Computo 1', 'Lab Computo 2') 
                   AND `AULA` NOT LIKE '%GRADO - SECCION%'
@@ -207,6 +209,7 @@ with tab_auditoria:
             'TURNO': 'Turno',
             'AREA': 'Área Académica',
             'ALUMNOS': 'Aforo Alumnos',
+            'EQUIPOS': 'Equipos Usados',
             'AULA': 'Aula',
             'INASISTENCIA': 'Inasistencia'
         }
