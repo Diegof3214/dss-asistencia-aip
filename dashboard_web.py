@@ -21,6 +21,7 @@ db_config = motor_dss.db_config
 def cargar_datos():
     try:
         conn = mysql.connector.connect(**db_config)
+        # FECHA_PROCESAMIENTO sí es DATETIME porque lo genera Python en motor_dss
         query = """
             SELECT am.*, a.NOMBRE AS NOMBRE_REAL_AREA 
             FROM alertas_ml am
@@ -48,7 +49,7 @@ def cargar_datos():
 def cargar_historial():
     try:
         conn = mysql.connector.connect(**db_config)
-        # Corrección: Usamos comillas invertidas para columnas con espacios en MySQL/TiDB
+        # SOLUCIÓN: Usamos LIKE '%2026' para buscar en las fechas guardadas como texto (MM/DD/YYYY)
         query = """
             SELECT m.`FECHA`, m.`NOMBRE DEL PROFESOR` AS PROFESOR, m.`TURNO`, 
                    a.`NOMBRE` AS AREA_NOMBRE, m.`AREA` AS AREA_NUM, m.`NUMERO DE ALUMNOS` AS ALUMNOS, m.`AULA`, m.`INASISTENCIA`
@@ -56,7 +57,7 @@ def cargar_historial():
             LEFT JOIN area a ON m.`AREA` = a.`IDAREA`
             WHERE m.`AULA` NOT IN ('Lab Computo 1', 'Lab Computo 2')
               AND m.`AULA` NOT LIKE '%GRADO - SECCION%'
-              AND YEAR(m.`FECHA`) = 2026
+              AND m.`FECHA` LIKE '%2026'
             ORDER BY m.`FECHA` DESC
         """
         df = pd.read_sql(query, conn)
@@ -68,16 +69,15 @@ def cargar_historial():
             
         return df
     except Exception as e:
-        # Si falla por la columna FECHA o nombres, exponemos el error en pantalla para diagnosticar
         st.error(f"⚠️ Nota en Historial (Consulta Principal): {e}")
         try:
             conn = mysql.connector.connect(**db_config)
-            # Fallback seguro: Carga los datos crudos sin filtro estricto de año para verificar contenido
             query_fallback = """
                 SELECT *, `NOMBRE DEL PROFESOR` AS PROFESOR, `NUMERO DE ALUMNOS` AS ALUMNOS 
                 FROM monitoreo 
                 WHERE `AULA` NOT IN ('Lab Computo 1', 'Lab Computo 2') 
                   AND `AULA` NOT LIKE '%GRADO - SECCION%'
+                  AND `FECHA` LIKE '%2026'
             """
             df = pd.read_sql(query_fallback, conn)
             conn.close()
@@ -211,7 +211,6 @@ with tab_auditoria:
             'INASISTENCIA': 'Estado Asistencia'
         }
         
-        # Mapeo dinámico de nombres según las columnas que devuelva la consulta exitosa
         columnas_existentes = {k: v for k, v in columnas_renombradas_hist.items() if k in df_hist_filtrado.columns}
         df_hist_filtrado.rename(columns=columnas_existentes, inplace=True)
 
