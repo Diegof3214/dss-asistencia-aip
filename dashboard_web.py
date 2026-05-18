@@ -21,16 +21,22 @@ db_config = motor_dss.db_config
 def cargar_datos():
     try:
         conn = mysql.connector.connect(**db_config)
-        # Filtramos las aulas inexistentes directamente en la consulta predictiva
         query = """
-            SELECT * FROM alertas_ml 
-            WHERE AULA NOT IN ('Lab Computo 1', 'Lab Computo 2') 
-            ORDER BY RIESGO_AUSENTISMO DESC
+            SELECT am.*, a.NOMBRE AS NOMBRE_REAL_AREA 
+            FROM alertas_ml am
+            LEFT JOIN area a ON am.AREA = a.IDAREA
+            WHERE am.AULA NOT IN ('Lab Computo 1', 'Lab Computo 2') 
+              AND am.AULA NOT LIKE '%GRADO - SECCION%'
+              AND YEAR(am.FECHA_PROCESAMIENTO) = 2026
+            ORDER BY am.RIESGO_AUSENTISMO DESC
         """
         df = pd.read_sql(query, conn)
         conn.close()
         
-        # Eliminación explícita de columnas de ID que no aportan valor visual
+        if 'NOMBRE_REAL_AREA' in df.columns:
+            df['AREA'] = df['NOMBRE_REAL_AREA'].fillna(df['AREA'])
+            df.drop(columns=['NOMBRE_REAL_AREA'], inplace=True)
+            
         if 'IDMONITOREO' in df.columns:
             df.drop(columns=['IDMONITOREO'], inplace=True)
         return df
@@ -41,22 +47,34 @@ def cargar_datos():
 def cargar_historial():
     try:
         conn = mysql.connector.connect(**db_config)
-        # Traemos el nombre real del área mediante un LEFT JOIN y excluimos las aulas obsoletas
         query = """
             SELECT m.FECHA, m.NOMBRE_DEL_PROFESOR AS PROFESOR, m.TURNO, 
-                   a.NOMBRE AS AREA, m.NUMERO_DE_ALUMNOS AS ALUMNOS, m.AULA, m.INASISTENCIA
+                   a.NOMBRE AS AREA_NOMBRE, m.AREA AS AREA_NUM, m.NUMERO_DE_ALUMNOS AS ALUMNOS, m.AULA, m.INASISTENCIA
             FROM monitoreo m
             LEFT JOIN area a ON m.AREA = a.IDAREA
             WHERE m.AULA NOT IN ('Lab Computo 1', 'Lab Computo 2')
+              AND m.AULA NOT LIKE '%GRADO - SECCION%'
+              AND YEAR(m.FECHA) = 2026
             ORDER BY m.FECHA DESC
         """
         df = pd.read_sql(query, conn)
         conn.close()
+        
+        if 'AREA_NOMBRE' in df.columns:
+            df['AREA'] = df['AREA_NOMBRE'].fillna(df['AREA_NUM'])
+            df.drop(columns=['AREA_NOMBRE', 'AREA_NUM'], inplace=True)
+            
         return df
     except Exception:
         try:
             conn = mysql.connector.connect(**db_config)
-            df = pd.read_sql("SELECT * FROM monitoreo WHERE AULA NOT IN ('Lab Computo 1', 'Lab Computo 2')", conn)
+            query_fallback = """
+                SELECT * FROM monitoreo 
+                WHERE AULA NOT IN ('Lab Computo 1', 'Lab Computo 2') 
+                  AND AULA NOT LIKE '%GRADO - SECCION%'
+                  AND YEAR(FECHA) = 2026
+            """
+            df = pd.read_sql(query_fallback, conn)
             conn.close()
             if 'IDMONITOREO' in df.columns:
                 df.drop(columns=['IDMONITOREO'], inplace=True)
@@ -101,29 +119,37 @@ with st.sidebar:
     filtro_area = []
     filtro_docente = []
     
-    if not df_alertas.empty:
-        if 'AREA' in df_alertas.columns:
-            areas_unicas = df_alertas['AREA'].dropna().unique().tolist()
-            filtro_area = st.multiselect("Filtrar por Área:", options=areas_unicas, default=[])
-            
-        df_para_docentes = df_alertas.copy()
+    if not df_alertas.empty or not df_historico.empty:
+        areas_alertas = df_alertas['AREA'].dropna().unique().tolist() if 'AREA' in df_alertas.columns else []
+        areas_historial = df_historico['AREA'].dropna().unique().tolist() if 'AREA' in df_historico.columns else []
+        areas_unicas = sorted(list(set(areas_alertas + areas_historial)))
+        
+        filtro_area = st.multiselect("Filtrar por Área Académica:", options=areas_unicas, default=[])
+        
+        df_doc_alertas = df_alertas.copy()
+        df_doc_historial = df_historico.copy()
         if filtro_area:
-            df_para_docentes = df_para_docentes[df_para_docentes['AREA'].isin(filtro_area)]
-            
-        docentes_unicos = df_para_docentes['PROFESOR'].dropna().unique().tolist()
+            if 'AREA' in df_doc_alertas.columns:
+                df_doc_alertas = df_doc_alertas[df_doc_alertas['AREA'].isin(filtro_area)]
+            if 'AREA' in df_doc_historial.columns:
+                df_doc_historial = df_doc_historial[df_doc_historial['AREA'].isin(filtro_area)]
+                
+        docentes_alertas = df_doc_alertas['PROFESOR'].dropna().unique().tolist() if 'PROFESOR' in df_doc_alertas.columns else []
+        docentes_historial = df_doc_historial['PROFESOR'].dropna().unique().tolist() if 'PROFESOR' in df_doc_historial.columns else []
+        docentes_unicos = sorted(list(set(docentes_alertas + docentes_historial)))
+        
         filtro_docente = st.multiselect("Filtrar por Docente:", options=docentes_unicos, default=[])
 
-# Pestañas de Navegación
+# --- PESTAÑAS DE NAVEGACIÓN ---
 tab_predictivo, tab_auditoria = st.tabs(["🔮 Inteligencia Artificial (Alertas)", "📜 Auditoría de Asistencia (Historial)"])
 
 with tab_predictivo:
     if not df_alertas.empty:
         df_filtrado = df_alertas.copy()
         
-        if 'AREA' in df_alertas.columns and filtro_area:
+        if 'AREA' in df_filtrado.columns and filtro_area:
             df_filtrado = df_filtrado[df_filtrado['AREA'].isin(filtro_area)]
-            
-        if filtro_docente:
+        if 'PROFESOR' in df_filtrado.columns and filtro_docente:
             df_filtrado = df_filtrado[df_filtrado['PROFESOR'].isin(filtro_docente)]
 
         col1, col2, col3 = st.columns(3)
@@ -153,16 +179,18 @@ with tab_predictivo:
 
 with tab_auditoria:
     if not df_historico.empty:
-        st.write("Verifica el historial de los docentes para confirmar el contexto de las alertas generadas por el modelo predictivo.")
+        st.write("Verifica el historial detallado del año 2026 para contrastar y confirmar el contexto de las alertas predictivas.")
         
-        busqueda = st.text_input("🔍 Buscar profesor específico en el historial:")
+        df_hist_filtrado = df_historico.copy()
         
-        df_hist_mostrar = df_historico.copy()
-        if 'IDMONITOREO' in df_hist_mostrar.columns:
-            df_hist_mostrar.drop(columns=['IDMONITOREO'], inplace=True)
+        if 'AREA' in df_hist_filtrado.columns and filtro_area:
+            df_hist_filtrado = df_hist_filtrado[df_hist_filtrado['AREA'].isin(filtro_area)]
+        if 'PROFESOR' in df_hist_filtrado.columns and filtro_docente:
+            df_hist_filtrado = df_hist_filtrado[df_hist_filtrado['PROFESOR'].isin(filtro_docente)]
             
-        if busqueda:
-            df_hist_mostrar = df_hist_mostrar[df_hist_mostrar.astype(str).apply(lambda x: x.str.contains(busqueda, case=False)).any(axis=1)]
+        busqueda_adicional = st.text_input("🔍 Búsqueda rápida adicional en el historial (Ej. un aula o turno específico):")
+        if busqueda_adicional:
+            df_hist_filtrado = df_hist_filtrado[df_hist_filtrado.astype(str).apply(lambda x: x.str.contains(busqueda_adicional, case=False)).any(axis=1)]
             
         columnas_renombradas_hist = {
             'FECHA': 'Fecha / Hora',
@@ -173,16 +201,16 @@ with tab_auditoria:
             'AULA': 'Aula',
             'INASISTENCIA': 'Estado Asistencia'
         }
-        df_hist_mostrar.rename(columns=columnas_renombradas_hist, inplace=True)
+        df_hist_filtrado.rename(columns=columnas_renombradas_hist, inplace=True)
 
         def resaltar_faltas(val):
             if str(val).upper() in ['FALTO', 'INASISTENCIA', 'TARDE', 'SI']:
                 return 'background-color: #FEE2E2; color: #991B1B; font-weight: bold;'
             return ''
             
-        if 'Estado Asistencia' in df_hist_mostrar.columns:
-            st.dataframe(df_hist_mostrar.style.map(resaltar_faltas, subset=['Estado Asistencia']), use_container_width=True, hide_index=True)
+        if 'Estado Asistencia' in df_hist_filtrado.columns:
+            st.dataframe(df_hist_filtrado.style.map(resaltar_faltas, subset=['Estado Asistencia']), use_container_width=True, hide_index=True)
         else:
-            st.dataframe(df_hist_mostrar, use_container_width=True, hide_index=True)
+            st.dataframe(df_hist_filtrado, use_container_width=True, hide_index=True)
     else:
-        st.warning("No se encontraron registros en la tabla histórica (monitoreo).")
+        st.warning("No se encontraron registros en la tabla histórica (monitoreo) para el año 2026.")
