@@ -209,7 +209,7 @@ with tab_auditoria:
             'ALUMNOS': 'Aforo Alumnos',
             'EQUIPOS': 'Equipos Usados',
             'AULA': 'Aula',
-            'INASISTENCIA': 'Estado Asistencia'
+            'INASISTENCIA': 'Inasistencia'
         }
         
         columnas_existentes = {k: v for k, v in columnas_renombradas_hist.items() if k in df_hist_filtrado.columns}
@@ -220,7 +220,7 @@ with tab_auditoria:
                 return 'background-color: #FEE2E2; color: #991B1B; font-weight: bold;'
             return ''
             
-        target_col = 'Estado Asistencia' if 'Estado Asistencia' in df_hist_filtrado.columns else ('INASISTENCIA' if 'INASISTENCIA' in df_hist_filtrado.columns else None)
+        target_col = 'Inasistencia' if 'Inasistencia' in df_hist_filtrado.columns else ('INASISTENCIA' if 'INASISTENCIA' in df_hist_filtrado.columns else None)
         
         if target_col:
             st.dataframe(df_hist_filtrado.style.map(resaltar_faltas, subset=[target_col]), use_container_width=True, hide_index=True)
