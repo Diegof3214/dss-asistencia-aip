@@ -48,11 +48,10 @@ def cargar_datos():
 def cargar_historial():
     try:
         conn = mysql.connector.connect(**db_config)
-        # SE AÑADE: m.`NUMERO DE COMPUTADORAS` para auditar el desbalance del algoritmo K-Means
         query = """
             SELECT m.`FECHA`, m.`NOMBRE DEL PROFESOR` AS PROFESOR, m.`TURNO`, 
                    a.`NOMBRE` AS AREA_NOMBRE, m.`AREA` AS AREA_NUM, 
-                   m.`NUMERO DE ALUMNOS` AS ALUMNOS, m.`NUMERO DE COMPUTADORAS` AS EQUIPOS, 
+                   m.`NUMERO DE ALUMNOS` AS ALUMNOS, m.`NUMERO DE COMPUTADORAS USADAS` AS EQUIPOS, 
                    m.`AULA`, m.`INASISTENCIA`
             FROM monitoreo m
             LEFT JOIN area a ON m.`AREA` = a.`IDAREA`
@@ -73,9 +72,8 @@ def cargar_historial():
         st.error(f"⚠️ Nota en Historial (Consulta Principal): {e}")
         try:
             conn = mysql.connector.connect(**db_config)
-            # Fallback seguro incluyendo también la columna de computadoras
             query_fallback = """
-                SELECT *, `NOMBRE DEL PROFESOR` AS PROFESOR, `NUMERO DE ALUMNOS` AS ALUMNOS, `NUMERO DE COMPUTADORAS` AS EQUIPOS 
+                SELECT *, `NOMBRE DEL PROFESOR` AS PROFESOR, `NUMERO DE ALUMNOS` AS ALUMNOS, `NUMERO DE COMPUTADORAS USADAS` AS EQUIPOS 
                 FROM monitoreo 
                 WHERE `AULA` NOT IN ('Lab Computo 1', 'Lab Computo 2') 
                   AND `AULA` NOT LIKE '%GRADO - SECCION%'
@@ -211,7 +209,7 @@ with tab_auditoria:
             'ALUMNOS': 'Aforo Alumnos',
             'EQUIPOS': 'Equipos Usados',
             'AULA': 'Aula',
-            'INASISTENCIA': 'Inasistencia'
+            'INASISTENCIA': 'Estado Asistencia'
         }
         
         columnas_existentes = {k: v for k, v in columnas_renombradas_hist.items() if k in df_hist_filtrado.columns}
@@ -222,7 +220,7 @@ with tab_auditoria:
                 return 'background-color: #FEE2E2; color: #991B1B; font-weight: bold;'
             return ''
             
-        target_col = 'Inasistencia' if 'Inasistencia' in df_hist_filtrado.columns else ('INASISTENCIA' if 'INASISTENCIA' in df_hist_filtrado.columns else None)
+        target_col = 'Estado Asistencia' if 'Estado Asistencia' in df_hist_filtrado.columns else ('INASISTENCIA' if 'INASISTENCIA' in df_hist_filtrado.columns else None)
         
         if target_col:
             st.dataframe(df_hist_filtrado.style.map(resaltar_faltas, subset=[target_col]), use_container_width=True, hide_index=True)
