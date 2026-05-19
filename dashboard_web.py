@@ -8,7 +8,15 @@ st.set_page_config(page_title="DSS Predictivo", page_icon="📊", layout="wide")
 
 st.markdown("""
     <style>
-    .metric-card { background-color: #F8FAFC; border-radius: 10px; padding: 20px; text-align: center; border-top: 4px solid #3B82F6; margin-bottom: 20px;}
+    .metric-card { 
+        background-color: var(--secondary-background-color); 
+        color: var(--text-color);
+        border-radius: 10px; 
+        padding: 20px; 
+        text-align: center; 
+        border-top: 4px solid #3B82F6; 
+        margin-bottom: 20px;
+    }
     </style>
 """, unsafe_allow_html=True)
 
